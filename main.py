@@ -28,7 +28,7 @@ mcp = FastMCP(
     name="Timer MCP Server",
     instructions="An MCP server for time-related operations like timezone conversion and timestamp calculations.",
     host="0.0.0.0",
-    port=9000,
+    port=8000,
 )
 
 # --- Helper Functions ---
