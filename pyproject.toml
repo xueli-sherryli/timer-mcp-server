@@ -1,0 +1,14 @@
+[project]
+name = "timer-mcp-server"
+version = "0.1.0"
+description = "An MCP server for time-related operations like timezone conversion and timestamp calculations."
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp",
+    "pydantic",
+    "tzdata",
+    "uvicorn"
+]
+
+[tool.uv]
+# This section is for uv-specific configurations, but not required for basic usage.

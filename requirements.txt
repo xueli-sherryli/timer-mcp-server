@@ -1,0 +1,4 @@
+fastmcp
+pydantic
+tzdata
+uvicorn
