@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from typing import Optional
+from typing import Optional, Union
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -71,12 +71,14 @@ async def get_current_time(timezone: Optional[str] = None):
     }
 
 @mcp.tool()
-async def convert_timestamp_to_time(timestamp: int, timezone: Optional[str] = None):
+async def convert_timestamp_to_time(timestamp: Union[int, str], timezone: Optional[str] = None):
     """
     Converts a Unix timestamp to a formatted time string in the specified timezone.
     :param timestamp: The Unix timestamp to convert.
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
+    if isinstance(timestamp, str):
+        timestamp = int(timestamp)
     tz = get_valid_timezone(timezone)
     dt_object = datetime.fromtimestamp(timestamp, tz)
     
@@ -104,22 +106,28 @@ async def convert_time_to_timestamp(time: str, timezone: Optional[str] = None):
         raise ValueError(f"Time data '{time}' does not match format '{TIME_FORMAT}'")
 
 @mcp.tool()
-async def time_difference(start_timestamp: int, end_timestamp: int):
+async def time_difference(start_timestamp: Union[int, str], end_timestamp: Union[int, str]):
     """
     Calculates the difference in seconds between two Unix timestamps.
     :param start_timestamp: The starting Unix timestamp.
     :param end_timestamp: The ending Unix timestamp.
     """
+    if isinstance(start_timestamp, str):
+        start_timestamp = int(start_timestamp)
+    if isinstance(end_timestamp, str):
+        end_timestamp = int(end_timestamp)
     difference = end_timestamp - start_timestamp
     return {"time_difference": difference}
 
 @mcp.tool()
-async def time_difference_caculate(time_difference: int, mode: str = 'p') -> TimeDifferenceResult:
+async def time_difference_caculate(time_difference: Union[int, str], mode: str = 'p') -> TimeDifferenceResult:
     """
     Calculates the time length (years, months, etc.) from a time difference in seconds.
     :param time_difference: The time difference in seconds.
     :param mode: 'p' for progressive calculation, 's' for separate calculation. Defaults to 'p'.
     """
+    if isinstance(time_difference, str):
+        time_difference = int(time_difference)
     if mode.lower() not in ['p', 's']:
         logging.warning(f"Invalid mode '{mode}' provided. Defaulting to 'p' (progressive).")
         mode = 'p'
@@ -157,11 +165,13 @@ async def time_difference_caculate(time_difference: int, mode: str = 'p') -> Tim
         )
 
 @mcp.tool()
-async def get_day_of_week(timestamp: int):
+async def get_day_of_week(timestamp: Union[int, str]):
     """
     Calculates the day of the week from a Unix timestamp.
     :param timestamp: The Unix timestamp to calculate the day of the week from.
     """
+    if isinstance(timestamp, str):
+        timestamp = int(timestamp)
     # The timezone doesn't affect the day of the week calculation from a UTC timestamp
     dt_object = datetime.fromtimestamp(timestamp, ZoneInfo("UTC"))
     day_name = dt_object.strftime('%A') # %A gives the full weekday name (e.g., Monday)
