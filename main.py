@@ -227,19 +227,50 @@ async def get_next_weekday_timestamps(timestamp: Union[int, str], timezone: Opti
     }
 
 @mcp.tool()
-async def time_until_next_date(target_day: Union[int, str], timezone: Optional[str] = None):
+async def time_until_next_date(target: Union[int, str], timezone: Optional[str] = None):
     """
-    Calculates the time remaining until the next specified day of the month.
-    :param target_day: The target day of the month (1-31) (can be int or string).
+    Calculates the time remaining until the next specified day of the month or day of the week.
+    :param target: The target day of the month (1-31) or day of the week (e.g., "Saturday").
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
-    day = to_int(target_day, "target_day")
+    tz = get_valid_timezone(timezone)
+    now = datetime.now(tz)
+
+    weekdays = {
+        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, 
+        "friday": 4, "saturday": 5, "sunday": 6
+    }
+
+    # Check if target is a weekday name
+    if isinstance(target, str) and target.lower() in weekdays:
+        target_weekday_name = target.lower()
+        target_weekday = weekdays[target_weekday_name]
+        current_weekday = now.weekday()
+
+        days_ahead = (target_weekday - current_weekday + 7) % 7
+        if days_ahead == 0:  # If it's today, get next week's one
+            days_ahead = 7
+        
+        next_date = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        time_remaining = next_date - now
+        
+        return {
+            "target_day": target.capitalize(),
+            "timezone": str(tz),
+            "next_occurrence_time": next_date.strftime(TIME_FORMAT),
+            "time_remaining_seconds": int(time_remaining.total_seconds())
+        }
+
+    # Original logic for day of the month
+    try:
+        day = to_int(target, "target_day")
+    except ValueError:
+        raise ValueError(f"Invalid target: '{target}'. Must be a day of the month (1-31) or a weekday name.")
+
     if not 1 <= day <= 31:
         raise ValueError("Target day must be between 1 and 31.")
 
-    tz = get_valid_timezone(timezone)
-    now = datetime.now(tz)
-    
     # Determine the year and month for the next occurrence
     next_year = now.year
     next_month = now.month
