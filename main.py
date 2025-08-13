@@ -189,9 +189,9 @@ async def get_day_of_week(timestamp: Union[int, str], timezone: Optional[str] = 
     }
 
 @mcp.tool()
-async def get_next_weekday_timestamps(timestamp: Union[int, str], timezone: Optional[str] = None):
+async def get_weekday_timestamps_for_week(timestamp: Union[int, str], timezone: Optional[str] = None):
     """
-    Calculates the timestamps for the next Monday through Sunday based on a given timestamp.
+    Calculates the timestamps for Monday through Sunday of the week containing the given timestamp.
     :param timestamp: The reference Unix timestamp (can be int or string).
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
@@ -199,31 +199,25 @@ async def get_next_weekday_timestamps(timestamp: Union[int, str], timezone: Opti
     tz = get_valid_timezone(timezone)
     start_date = datetime.fromtimestamp(ts, tz)
     
-    # Monday is 0 and Sunday is 6
-    start_weekday = start_date.weekday()
-    
-    # Calculate days until next Monday
-    days_until_monday = (7 - start_weekday) % 7
-    if days_until_monday == 0:  # If today is Monday, get next week's Monday
-        days_until_monday = 7
-        
-    next_monday = start_date + timedelta(days=days_until_monday)
-    next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Monday is 0 and Sunday is 6. Calculate the Monday of the current week.
+    days_from_monday = start_date.weekday()
+    monday_of_week = start_date - timedelta(days=days_from_monday)
+    monday_of_week = monday_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
 
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    next_week_timestamps = {}
+    week_timestamps = {}
 
     for i, day_name in enumerate(weekdays):
-        next_day = next_monday + timedelta(days=i)
-        next_week_timestamps[day_name] = {
-            "timestamp": int(next_day.timestamp()),
-            "date": next_day.strftime(TIME_FORMAT)
+        current_day = monday_of_week + timedelta(days=i)
+        week_timestamps[day_name] = {
+            "timestamp": int(current_day.timestamp()),
+            "date": current_day.strftime(TIME_FORMAT)
         }
 
     return {
         "reference_timestamp": ts,
         "timezone": str(tz),
-        "next_week_timestamps": next_week_timestamps
+        "week_timestamps": week_timestamps
     }
 
 @mcp.tool()
@@ -248,10 +242,13 @@ async def time_until_next_date(target: Union[int, str], timezone: Optional[str] 
         current_weekday = now.weekday()
 
         days_ahead = (target_weekday - current_weekday + 7) % 7
-        if days_ahead == 0:  # If it's today, get next week's one
-            days_ahead = 7
         
         next_date = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # If the calculated date is in the past (e.g., target is today but time has passed),
+        # move to the next week's occurrence.
+        if next_date < now:
+            next_date += timedelta(days=7)
         
         time_remaining = next_date - now
         
