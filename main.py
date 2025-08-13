@@ -1,6 +1,6 @@
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Optional, Union
 
@@ -42,6 +42,15 @@ def get_valid_timezone(tz_name: Optional[str]) -> ZoneInfo:
         logging.warning(f"Invalid timezone '{tz_name}' provided. Defaulting to '{DEFAULT_TIMEZONE}'.")
         return ZoneInfo(DEFAULT_TIMEZONE)
 
+def to_int(value: Union[int, str], name: str) -> int:
+    """Converts a value to an integer, raising a descriptive error if it fails."""
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(f"Invalid integer value for '{name}': '{value}'")
+    return value
+
 # --- Pydantic Models ---
 class TimeDifferenceResult(BaseModel):
     time_difference: int = Field(description="The input time difference in seconds.")
@@ -74,13 +83,12 @@ async def get_current_time(timezone: Optional[str] = None):
 async def convert_timestamp_to_time(timestamp: Union[int, str], timezone: Optional[str] = None):
     """
     Converts a Unix timestamp to a formatted time string in the specified timezone.
-    :param timestamp: The Unix timestamp to convert.
+    :param timestamp: The Unix timestamp to convert (can be int or string).
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
-    if isinstance(timestamp, str):
-        timestamp = int(timestamp)
+    ts = to_int(timestamp, "timestamp")
     tz = get_valid_timezone(timezone)
-    dt_object = datetime.fromtimestamp(timestamp, tz)
+    dt_object = datetime.fromtimestamp(ts, tz)
     
     return {
         "timezone": str(tz),
@@ -109,25 +117,23 @@ async def convert_time_to_timestamp(time: str, timezone: Optional[str] = None):
 async def time_difference(start_timestamp: Union[int, str], end_timestamp: Union[int, str]):
     """
     Calculates the difference in seconds between two Unix timestamps.
-    :param start_timestamp: The starting Unix timestamp.
-    :param end_timestamp: The ending Unix timestamp.
+    :param start_timestamp: The starting Unix timestamp (can be int or string).
+    :param end_timestamp: The ending Unix timestamp (can be int or string).
     """
-    if isinstance(start_timestamp, str):
-        start_timestamp = int(start_timestamp)
-    if isinstance(end_timestamp, str):
-        end_timestamp = int(end_timestamp)
-    difference = end_timestamp - start_timestamp
+    start_ts = to_int(start_timestamp, "start_timestamp")
+    end_ts = to_int(end_timestamp, "end_timestamp")
+    difference = end_ts - start_ts
     return {"time_difference": difference}
 
 @mcp.tool()
 async def time_difference_caculate(time_difference: Union[int, str], mode: str = 'p') -> TimeDifferenceResult:
     """
     Calculates the time length (years, months, etc.) from a time difference in seconds.
-    :param time_difference: The time difference in seconds.
+    :param time_difference: The time difference in seconds (can be int or string).
     :param mode: 'p' for progressive calculation, 's' for separate calculation. Defaults to 'p'.
     """
-    if isinstance(time_difference, str):
-        time_difference = int(time_difference)
+    diff = to_int(time_difference, "time_difference")
+
     if mode.lower() not in ['p', 's']:
         logging.warning(f"Invalid mode '{mode}' provided. Defaulting to 'p' (progressive).")
         mode = 'p'
@@ -135,17 +141,17 @@ async def time_difference_caculate(time_difference: Union[int, str], mode: str =
     if mode == 's':
         # Separate calculation
         return TimeDifferenceResult(
-            time_difference=time_difference,
-            years=time_difference / SECONDS_IN_YEAR,
-            months=time_difference / SECONDS_IN_MONTH,
-            days=time_difference / SECONDS_IN_DAY,
-            hours=time_difference / SECONDS_IN_HOUR,
-            minutes=time_difference / SECONDS_IN_MINUTE,
-            seconds=float(time_difference)
+            time_difference=diff,
+            years=diff / SECONDS_IN_YEAR,
+            months=diff / SECONDS_IN_MONTH,
+            days=diff / SECONDS_IN_DAY,
+            hours=diff / SECONDS_IN_HOUR,
+            minutes=diff / SECONDS_IN_MINUTE,
+            seconds=float(diff)
         )
     else:
         # Progressive calculation
-        remaining_seconds = abs(time_difference)
+        remaining_seconds = abs(diff)
         
         years, remaining_seconds = divmod(remaining_seconds, SECONDS_IN_YEAR)
         months, remaining_seconds = divmod(remaining_seconds, SECONDS_IN_MONTH)
@@ -153,9 +159,9 @@ async def time_difference_caculate(time_difference: Union[int, str], mode: str =
         hours, remaining_seconds = divmod(remaining_seconds, SECONDS_IN_HOUR)
         minutes, seconds = divmod(remaining_seconds, SECONDS_IN_MINUTE)
 
-        sign = -1 if time_difference < 0 else 1
+        sign = -1 if diff < 0 else 1
         return TimeDifferenceResult(
-            time_difference=time_difference,
+            time_difference=diff,
             years=float(years * sign),
             months=float(months * sign),
             days=float(days * sign),
@@ -165,20 +171,114 @@ async def time_difference_caculate(time_difference: Union[int, str], mode: str =
         )
 
 @mcp.tool()
-async def get_day_of_week(timestamp: Union[int, str]):
+async def get_day_of_week(timestamp: Union[int, str], timezone: Optional[str] = None):
     """
-    Calculates the day of the week from a Unix timestamp.
-    :param timestamp: The Unix timestamp to calculate the day of the week from.
+    Calculates the day of the week from a Unix timestamp in the specified timezone.
+    :param timestamp: The Unix timestamp to calculate the day of the week from (can be int or string).
+    :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
-    if isinstance(timestamp, str):
-        timestamp = int(timestamp)
-    # The timezone doesn't affect the day of the week calculation from a UTC timestamp
-    dt_object = datetime.fromtimestamp(timestamp, ZoneInfo("UTC"))
-    day_name = dt_object.strftime('%A') # %A gives the full weekday name (e.g., Monday)
+    ts = to_int(timestamp, "timestamp")
+    tz = get_valid_timezone(timezone)
+    dt_object = datetime.fromtimestamp(ts, tz)
+    day_name = dt_object.strftime('%A')  # %A gives the full weekday name (e.g., Monday)
+
+    return {
+        "timestamp": ts,
+        "timezone": str(tz),
+        "day_of_week": day_name,
+    }
+
+@mcp.tool()
+async def get_next_weekday_timestamps(timestamp: Union[int, str], timezone: Optional[str] = None):
+    """
+    Calculates the timestamps for the next Monday through Sunday based on a given timestamp.
+    :param timestamp: The reference Unix timestamp (can be int or string).
+    :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
+    """
+    ts = to_int(timestamp, "timestamp")
+    tz = get_valid_timezone(timezone)
+    start_date = datetime.fromtimestamp(ts, tz)
+    
+    # Monday is 0 and Sunday is 6
+    start_weekday = start_date.weekday()
+    
+    # Calculate days until next Monday
+    days_until_monday = (7 - start_weekday) % 7
+    if days_until_monday == 0:  # If today is Monday, get next week's Monday
+        days_until_monday = 7
+        
+    next_monday = start_date + timedelta(days=days_until_monday)
+    next_monday = next_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    next_week_timestamps = {}
+
+    for i, day_name in enumerate(weekdays):
+        next_day = next_monday + timedelta(days=i)
+        next_week_timestamps[day_name] = {
+            "timestamp": int(next_day.timestamp()),
+            "date": next_day.strftime(TIME_FORMAT)
+        }
+
+    return {
+        "reference_timestamp": ts,
+        "timezone": str(tz),
+        "next_week_timestamps": next_week_timestamps
+    }
+
+@mcp.tool()
+async def time_until_next_date(target_day: Union[int, str], timezone: Optional[str] = None):
+    """
+    Calculates the time remaining until the next specified day of the month.
+    :param target_day: The target day of the month (1-31) (can be int or string).
+    :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
+    """
+    day = to_int(target_day, "target_day")
+    if not 1 <= day <= 31:
+        raise ValueError("Target day must be between 1 and 31.")
+
+    tz = get_valid_timezone(timezone)
+    now = datetime.now(tz)
+    
+    # Determine the year and month for the next occurrence
+    next_year = now.year
+    next_month = now.month
+    
+    try:
+        # Try to create the date in the current month
+        next_date = now.replace(day=day, hour=0, minute=0, second=0, microsecond=0)
+        if now >= next_date:
+            # If it's in the past, move to the next month
+            next_month += 1
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+    except ValueError:
+        # This happens if the day is invalid for the current month (e.g., 31 in Feb)
+        # Move to the next month
+        next_month += 1
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+
+    # Loop until we find a valid month for the target day
+    while True:
+        try:
+            next_date = datetime(next_year, next_month, day, tzinfo=tz)
+            break
+        except ValueError:
+            next_month += 1
+            if next_month > 12:
+                next_month = 1
+                next_year += 1
+
+    time_remaining = next_date - now
     
     return {
-        "timestamp": timestamp,
-        "day_of_week": day_name,
+        "target_day": day,
+        "timezone": str(tz),
+        "next_occurrence_time": next_date.strftime(TIME_FORMAT),
+        "time_remaining_seconds": int(time_remaining.total_seconds())
     }
 
 if __name__ == "__main__":
