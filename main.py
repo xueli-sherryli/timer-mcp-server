@@ -195,6 +195,12 @@ async def calculate_time_until_targets(targets: str, timezone: Optional[str] = N
     Calculates the time remaining until multiple target dates, provided as a JSON string.
     :param targets: A JSON string where keys are target names and values are either a Unix timestamp or a string like "next Saturday".
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
+    JSON examples:
+    {
+    "task 1":"1766160000",
+    “task 2":"next Saturday"
+    ...
+    }
     """
     tz = get_valid_timezone(timezone)
     now = datetime.now(tz)
