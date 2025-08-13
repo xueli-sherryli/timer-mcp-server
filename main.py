@@ -2,7 +2,8 @@ import os
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from typing import Optional, Union
+import json
+from typing import Optional, Union, Dict
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -189,124 +190,72 @@ async def get_day_of_week(timestamp: Union[int, str], timezone: Optional[str] = 
     }
 
 @mcp.tool()
-async def get_weekday_timestamps_for_week(timestamp: Union[int, str], timezone: Optional[str] = None):
+async def calculate_time_until_targets(targets: str, timezone: Optional[str] = None):
     """
-    Calculates the timestamps for Monday through Sunday of the week containing the given timestamp.
-    :param timestamp: The reference Unix timestamp (can be int or string).
-    :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
-    """
-    ts = to_int(timestamp, "timestamp")
-    tz = get_valid_timezone(timezone)
-    start_date = datetime.fromtimestamp(ts, tz)
-    
-    # Monday is 0 and Sunday is 6. Calculate the Monday of the current week.
-    days_from_monday = start_date.weekday()
-    monday_of_week = start_date - timedelta(days=days_from_monday)
-    monday_of_week = monday_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    week_timestamps = {}
-
-    for i, day_name in enumerate(weekdays):
-        current_day = monday_of_week + timedelta(days=i)
-        week_timestamps[day_name] = {
-            "timestamp": int(current_day.timestamp()),
-            "date": current_day.strftime(TIME_FORMAT)
-        }
-
-    return {
-        "reference_timestamp": ts,
-        "timezone": str(tz),
-        "week_timestamps": week_timestamps
-    }
-
-@mcp.tool()
-async def time_until_next_date(target: Union[int, str], timezone: Optional[str] = None):
-    """
-    Calculates the time remaining until the next specified day of the month or day of the week.
-    :param target: The target day of the month (1-31) or day of the week (e.g., "Saturday").
+    Calculates the time remaining until multiple target dates, provided as a JSON string.
+    :param targets: A JSON string where keys are target names and values are either a Unix timestamp or a string like "next Saturday".
     :param timezone: IANA timezone name. Defaults to 'Asia/Shanghai'.
     """
     tz = get_valid_timezone(timezone)
     now = datetime.now(tz)
+    results = {}
 
+    try:
+        targets_dict = json.loads(targets)
+        if not isinstance(targets_dict, dict):
+            raise ValueError("Input must be a JSON object (dictionary).")
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON string provided.")
+    
     weekdays = {
         "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, 
         "friday": 4, "saturday": 5, "sunday": 6
     }
 
-    # Check if target is a weekday name
-    if isinstance(target, str) and target.lower() in weekdays:
-        target_weekday_name = target.lower()
-        target_weekday = weekdays[target_weekday_name]
-        current_weekday = now.weekday()
-
-        days_ahead = (target_weekday - current_weekday + 7) % 7
-        
-        next_date = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # If the calculated date is in the past (e.g., target is today but time has passed),
-        # move to the next week's occurrence.
-        if next_date < now:
-            next_date += timedelta(days=7)
-        
-        time_remaining = next_date - now
-        
-        return {
-            "target_day": target.capitalize(),
-            "timezone": str(tz),
-            "next_occurrence_time": next_date.strftime(TIME_FORMAT),
-            "time_remaining_seconds": int(time_remaining.total_seconds())
-        }
-
-    # Original logic for day of the month
-    try:
-        day = to_int(target, "target_day")
-    except ValueError:
-        raise ValueError(f"Invalid target: '{target}'. Must be a day of the month (1-31) or a weekday name.")
-
-    if not 1 <= day <= 31:
-        raise ValueError("Target day must be between 1 and 31.")
-
-    # Determine the year and month for the next occurrence
-    next_year = now.year
-    next_month = now.month
-    
-    try:
-        # Try to create the date in the current month
-        next_date = now.replace(day=day, hour=0, minute=0, second=0, microsecond=0)
-        if now >= next_date:
-            # If it's in the past, move to the next month
-            next_month += 1
-            if next_month > 12:
-                next_month = 1
-                next_year += 1
-    except ValueError:
-        # This happens if the day is invalid for the current month (e.g., 31 in Feb)
-        # Move to the next month
-        next_month += 1
-        if next_month > 12:
-            next_month = 1
-            next_year += 1
-
-    # Loop until we find a valid month for the target day
-    while True:
+    for name, target_value in targets_dict.items():
         try:
-            next_date = datetime(next_year, next_month, day, tzinfo=tz)
-            break
-        except ValueError:
-            next_month += 1
-            if next_month > 12:
-                next_month = 1
-                next_year += 1
+            # Handle "next {weekday}" format
+            if isinstance(target_value, str) and target_value.lower().startswith("next "):
+                parts = target_value.lower().split()
+                if len(parts) == 2 and parts[0] == "next" and parts[1] in weekdays:
+                    target_weekday = weekdays[parts[1]]
+                    current_weekday = now.weekday()
+                    
+                    days_ahead = (target_weekday - current_weekday + 7) % 7
+                    next_date = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    if next_date < now:
+                        next_date += timedelta(days=7)
+                        
+                    time_remaining = next_date - now
+                    results[name] = {
+                        "target": target_value,
+                        "next_occurrence_time": next_date.strftime(TIME_FORMAT),
+                        "time_remaining_seconds": int(time_remaining.total_seconds())
+                    }
+                    continue
+                else:
+                    raise ValueError(f"Invalid 'next weekday' format for '{name}': '{target_value}'")
 
-    time_remaining = next_date - now
-    
+            # Handle timestamp format
+            target_ts = to_int(target_value, f"target for {name}")
+            target_date = datetime.fromtimestamp(target_ts, tz)
+            time_remaining = target_date - now
+            
+            results[name] = {
+                "target": target_value,
+                "target_time": target_date.strftime(TIME_FORMAT),
+                "time_remaining_seconds": int(time_remaining.total_seconds())
+            }
+
+        except ValueError as e:
+            results[name] = {"error": str(e)}
+        except Exception as e:
+            results[name] = {"error": f"An unexpected error occurred: {str(e)}"}
+
     return {
-        "target_day": day,
         "timezone": str(tz),
-        "next_occurrence_time": next_date.strftime(TIME_FORMAT),
-        "time_remaining_seconds": int(time_remaining.total_seconds())
+        "results": results
     }
 
 if __name__ == "__main__":
